@@ -43,7 +43,13 @@ export async function GET(req: Request) {
     `
   }
 
-  return NextResponse.json(rows.rows)
+  // ensure items is always a parsed array (Neon may return it as a string)
+  const parsed = rows.rows.map((r: any) => ({
+    ...r,
+    items: typeof r.items === "string" ? JSON.parse(r.items) : r.items ?? [],
+  }))
+
+  return NextResponse.json(parsed)
 }
 
 // POST /api/invoices  — admin only
