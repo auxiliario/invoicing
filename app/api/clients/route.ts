@@ -17,13 +17,19 @@ export async function POST(req: Request) {
   if (!session?.user?.email || !isAdmin(session.user.email))
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const { name, address, email } = await req.json()
+  const { name, address, email, aliases } = await req.json()
 
-  // upsert — update if email exists
+  // clean aliases: lowercase, trim, remove blanks and duplicates
+  const cleanAliases = (aliases || [])
+    .map((a: string) => a.trim().toLowerCase())
+    .filter((a: string) => a && a !== email.trim().toLowerCase())
+    .filter((a: string, i: number, arr: string[]) => arr.indexOf(a) === i)
+
   const row = await sql`
-    INSERT INTO clients (name, address, email)
-    VALUES (${name}, ${address || ""}, ${email})
-    ON CONFLICT (email) DO UPDATE SET name = ${name}, address = ${address || ""}
+    INSERT INTO clients (name, address, email, aliases)
+    VALUES (${name}, ${address || ""}, ${email.trim().toLowerCase()}, ${cleanAliases})
+    ON CONFLICT (email) DO UPDATE
+      SET name = ${name}, address = ${address || ""}, aliases = ${cleanAliases}
     RETURNING id
   `
 

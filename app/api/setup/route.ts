@@ -15,8 +15,17 @@ export async function POST() {
       name TEXT NOT NULL,
       address TEXT DEFAULT '',
       email TEXT UNIQUE NOT NULL,
+      aliases TEXT[] DEFAULT '{}',
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
+  `
+
+  // add aliases column if table already exists without it
+  await sql`
+    DO $$ BEGIN
+      ALTER TABLE clients ADD COLUMN IF NOT EXISTS aliases TEXT[] DEFAULT '{}';
+    EXCEPTION WHEN others THEN NULL;
+    END $$
   `
 
   await sql`

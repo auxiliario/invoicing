@@ -27,7 +27,7 @@ export async function GET(req: Request) {
       ORDER BY i.created_at DESC
     `
   } else {
-    const filterEmail = email || session.user.email
+    const filterEmail = (email || session.user.email).toLowerCase()
     rows = await sql`
       SELECT i.*, c.name AS client_name, c.email AS client_email,
         COALESCE(json_agg(json_build_object(
@@ -37,7 +37,7 @@ export async function GET(req: Request) {
       FROM invoices i
       LEFT JOIN clients c ON i.client_id = c.id
       LEFT JOIN invoice_items it ON it.invoice_id = i.id
-      WHERE c.email = ${filterEmail}
+      WHERE c.email = ${filterEmail} OR ${filterEmail} = ANY(c.aliases)
       GROUP BY i.id, c.name, c.email
       ORDER BY i.created_at DESC
     `

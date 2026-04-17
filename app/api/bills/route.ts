@@ -20,11 +20,11 @@ export async function GET(req: Request) {
       ORDER BY b.created_at DESC
     `
   } else {
-    const filterEmail = email || session.user.email
+    const filterEmail = (email || session.user.email).toLowerCase()
     rows = await sql`
       SELECT b.*, c.name AS client_name, c.email AS client_email
       FROM bills b LEFT JOIN clients c ON b.client_id = c.id
-      WHERE c.email = ${filterEmail}
+      WHERE c.email = ${filterEmail} OR ${filterEmail} = ANY(c.aliases)
       ORDER BY b.created_at DESC
     `
   }

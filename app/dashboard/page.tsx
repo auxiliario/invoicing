@@ -7,7 +7,7 @@ import InvoicePreview from "@/app/components/invoice-preview"
 import { COMPANY } from "@/lib/db"
 
 /* ── types ── */
-interface Client { id: number; name: string; address: string; email: string }
+interface Client { id: number; name: string; address: string; email: string; aliases: string[] }
 interface LineItem { id: string; description: string; quantity: number; rate: number }
 interface Invoice {
   id: number; number: string; date: string; due_date: string;
@@ -51,6 +51,7 @@ export default function Dashboard() {
   const [cName, setCName] = useState("")
   const [cAddress, setCAddress] = useState("")
   const [cEmail, setCEmail] = useState("")
+  const [cAliases, setCAliases] = useState("")
 
   /* bill form */
   const [billClientId, setBillClientId] = useState<number | "">("")
@@ -180,12 +181,13 @@ export default function Dashboard() {
   /* ── API actions ── */
   const saveClient = async () => {
     if (!cName.trim() || !cEmail.trim()) return
+    const aliasList = cAliases.split(",").map((a) => a.trim().toLowerCase()).filter(Boolean)
     await fetch("/api/clients", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: cName.trim(), address: cAddress.trim(), email: cEmail.trim().toLowerCase() }),
+      body: JSON.stringify({ name: cName.trim(), address: cAddress.trim(), email: cEmail.trim().toLowerCase(), aliases: aliasList }),
     })
-    setCName(""); setCAddress(""); setCEmail("")
+    setCName(""); setCAddress(""); setCEmail(""); setCAliases("")
     await load(); flash("Client saved")
   }
 
@@ -435,6 +437,29 @@ export default function Dashboard() {
         {tab === "invoices" && (
           <div>
             <h2 className="text-xl font-semibold mb-4 text-gray-800">All Invoices</h2>
+            {invoices.length > 0 && (() => {
+              const unpaid = invoices.filter((i) => i.status !== "paid")
+              const unpaidTotal = unpaid.reduce((s, inv) =>
+                s + inv.items.reduce((si: number, it: any) => si + Number(it.quantity) * Number(it.rate), 0) * 1.14975, 0)
+              const allTotal = invoices.reduce((s, inv) =>
+                s + inv.items.reduce((si: number, it: any) => si + Number(it.quantity) * Number(it.rate), 0) * 1.14975, 0)
+              return (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5">
+                  <div className="bg-white rounded-lg shadow px-4 py-3">
+                    <p className="text-xs text-gray-400 uppercase">Total invoiced</p>
+                    <p className="text-lg font-bold text-gray-900">{money(allTotal)}</p>
+                  </div>
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-3">
+                    <p className="text-xs text-yellow-600 uppercase">Unpaid ({unpaid.length})</p>
+                    <p className="text-lg font-bold text-yellow-700">{money(unpaidTotal)}</p>
+                  </div>
+                  <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3">
+                    <p className="text-xs text-green-600 uppercase">Paid ({invoices.length - unpaid.length})</p>
+                    <p className="text-lg font-bold text-green-700">{money(allTotal - unpaidTotal)}</p>
+                  </div>
+                </div>
+              )
+            })()}
             {invoices.length === 0 ? (
               <p className="text-gray-500 text-sm">No invoices yet.</p>
             ) : (
@@ -522,6 +547,27 @@ export default function Dashboard() {
         {tab === "bills" && (
           <div>
             <h2 className="text-xl font-semibold mb-4 text-gray-800">All Bills</h2>
+            {bills.length > 0 && (() => {
+              const unpaid = bills.filter((b) => b.status !== "paid")
+              const unpaidTotal = unpaid.reduce((s, b) => s + Number(b.amount), 0)
+              const allTotal = bills.reduce((s, b) => s + Number(b.amount), 0)
+              return (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5">
+                  <div className="bg-white rounded-lg shadow px-4 py-3">
+                    <p className="text-xs text-gray-400 uppercase">Total billed</p>
+                    <p className="text-lg font-bold text-gray-900">{money(allTotal)}</p>
+                  </div>
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-3">
+                    <p className="text-xs text-yellow-600 uppercase">Unpaid ({unpaid.length})</p>
+                    <p className="text-lg font-bold text-yellow-700">{money(unpaidTotal)}</p>
+                  </div>
+                  <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3">
+                    <p className="text-xs text-green-600 uppercase">Paid ({bills.length - unpaid.length})</p>
+                    <p className="text-lg font-bold text-green-700">{money(allTotal - unpaidTotal)}</p>
+                  </div>
+                </div>
+              )
+            })()}
             {bills.length === 0 ? (
               <p className="text-gray-500 text-sm">No bills yet.</p>
             ) : (
@@ -560,15 +606,18 @@ export default function Dashboard() {
           <div className="max-w-2xl">
             <h2 className="text-xl font-semibold mb-4 text-gray-800">Clients</h2>
             <div className="bg-white rounded-lg shadow p-5 space-y-3 mb-6">
-              <h3 className="text-sm font-medium text-gray-700">Add Client</h3>
+              <h3 className="text-sm font-medium text-gray-700">Add / Update Client</h3>
               <div className="grid grid-cols-3 gap-3">
                 <input placeholder="Name" value={cName} onChange={(e) => setCName(e.target.value)}
                   className="border rounded px-3 py-2 text-sm" />
-                <input placeholder="Email" value={cEmail} onChange={(e) => setCEmail(e.target.value)}
+                <input placeholder="Primary email" value={cEmail} onChange={(e) => setCEmail(e.target.value)}
                   className="border rounded px-3 py-2 text-sm" />
                 <input placeholder="Address" value={cAddress} onChange={(e) => setCAddress(e.target.value)}
                   className="border rounded px-3 py-2 text-sm" />
               </div>
+              <input placeholder="Additional emails (comma-separated, e.g. john@company.com, john@gmail.com)"
+                value={cAliases} onChange={(e) => setCAliases(e.target.value)}
+                className="w-full border rounded px-3 py-2 text-sm" />
               <button onClick={saveClient} disabled={!cName.trim() || !cEmail.trim()}
                 className="bg-gray-900 text-white rounded px-4 py-2 text-sm font-medium hover:bg-gray-800 disabled:opacity-40">
                 Save Client
@@ -585,8 +634,17 @@ export default function Dashboard() {
                       <span className="mx-2 text-gray-300">|</span>
                       <span className="text-sm text-gray-500">{c.email}</span>
                       {c.address && <><span className="mx-2 text-gray-300">|</span><span className="text-xs text-gray-400">{c.address}</span></>}
+                      {c.aliases && c.aliases.length > 0 && (
+                        <span className="ml-2 text-xs text-gray-400">+{c.aliases.join(", ")}</span>
+                      )}
                     </div>
-                    <button onClick={() => deleteClient(c.id)} className="text-xs text-red-500 hover:text-red-700">Delete</button>
+                    <div className="flex items-center gap-3">
+                      <button onClick={() => {
+                        setCName(c.name); setCEmail(c.email); setCAddress(c.address || "")
+                        setCAliases((c.aliases || []).join(", "))
+                      }} className="text-xs text-blue-600 hover:text-blue-800">Edit</button>
+                      <button onClick={() => deleteClient(c.id)} className="text-xs text-red-500 hover:text-red-700">Delete</button>
+                    </div>
                   </div>
                 ))}
               </div>
