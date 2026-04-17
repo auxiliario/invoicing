@@ -11,7 +11,7 @@ interface Client { id: number; name: string; address: string; email: string }
 interface LineItem { id: string; description: string; quantity: number; rate: number }
 interface Invoice {
   id: number; number: string; date: string; due_date: string;
-  client_name: string; client_email: string; notes: string;
+  client_id: number; client_name: string; client_email: string; notes: string;
   status: string; payment_proof_url: string | null;
   items: { description: string; quantity: number; rate: number }[]
 }
@@ -45,6 +45,7 @@ export default function Dashboard() {
   const [invClientId, setInvClientId] = useState<number | "">("")
   const [invItems, setInvItems] = useState<LineItem[]>([emptyItem()])
   const [invNotes, setInvNotes] = useState("")
+  const [editingInvoiceId, setEditingInvoiceId] = useState<number | null>(null)
 
   /* client form */
   const [cName, setCName] = useState("")
@@ -58,6 +59,7 @@ export default function Dashboard() {
   const [billDate, setBillDate] = useState("")
   const [billDue, setBillDue] = useState("")
   const [billNotes, setBillNotes] = useState("")
+  const [editingBillId, setEditingBillId] = useState<number | null>(null)
 
   /* auth guard */
   useEffect(() => {
@@ -101,13 +103,14 @@ export default function Dashboard() {
     setBillDue(due.toISOString().slice(0, 10))
   }, [])
 
-  /* auto invoice number */
+  /* auto invoice number (only when not editing) */
   useEffect(() => {
+    if (editingInvoiceId) return
     if (invoices.length === 0) { setInvNumber("INV-001"); return }
     const nums = invoices.map((i) => parseInt(i.number.replace(/\D/g, ""), 10)).filter((n) => !isNaN(n))
     const max = nums.length > 0 ? Math.max(...nums) : 0
     setInvNumber("INV-" + String(max + 1).padStart(3, "0"))
-  }, [invoices])
+  }, [invoices, editingInvoiceId])
 
   /* helpers */
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(""), 2500) }
@@ -118,6 +121,61 @@ export default function Dashboard() {
   const selectedClient = clients.find((c) => c.id === invClientId)
 
   const subtotal = invItems.reduce((s, i) => s + i.quantity * i.rate, 0)
+
+  const resetInvoiceForm = () => {
+    setEditingInvoiceId(null)
+    setInvItems([emptyItem()])
+    setInvNotes("")
+    setInvClientId("")
+    const today = new Date()
+    setInvDate(today.toISOString().slice(0, 10))
+    const due = new Date(today); due.setDate(due.getDate() + 30)
+    setInvDue(due.toISOString().slice(0, 10))
+  }
+
+  const resetBillForm = () => {
+    setEditingBillId(null)
+    setBillClientId("")
+    setBillDesc("")
+    setBillAmt("")
+    setBillNotes("")
+    const today = new Date()
+    setBillDate(today.toISOString().slice(0, 10))
+    const due = new Date(today); due.setDate(due.getDate() + 30)
+    setBillDue(due.toISOString().slice(0, 10))
+  }
+
+  /* ── EDIT loaders ── */
+  const startEditInvoice = (inv: Invoice) => {
+    setEditingInvoiceId(inv.id)
+    setInvNumber(inv.number)
+    setInvDate(inv.date?.slice(0, 10) ?? "")
+    setInvDue(inv.due_date?.slice(0, 10) ?? "")
+    setInvNotes(inv.notes || "")
+    // find client id by email
+    const client = clients.find((c) => c.email === inv.client_email)
+    setInvClientId(client?.id ?? inv.client_id ?? "")
+    // load items
+    const items = (inv.items || []).map((it: any) => ({
+      id: uid(),
+      description: it.description || "",
+      quantity: Number(it.quantity) || 0,
+      rate: Number(it.rate) || 0,
+    }))
+    setInvItems(items.length > 0 ? items : [emptyItem()])
+    setTab("invoice")
+  }
+
+  const startEditBill = (b: Bill) => {
+    setEditingBillId(b.id)
+    setBillClientId(b.client_id)
+    setBillDesc(b.description)
+    setBillAmt(Number(b.amount))
+    setBillDate(b.date?.slice(0, 10) ?? "")
+    setBillDue(b.due_date?.slice(0, 10) ?? "")
+    setBillNotes(b.notes || "")
+    setTab("newbill")
+  }
 
   /* ── API actions ── */
   const saveClient = async () => {
@@ -142,17 +200,32 @@ export default function Dashboard() {
 
   const saveInvoice = async () => {
     if (!invClientId || !invNumber) return
-    await fetch("/api/invoices", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        number: invNumber, date: invDate, dueDate: invDue,
-        clientId: invClientId, notes: invNotes,
-        items: invItems.filter((i) => i.description.trim()),
-      }),
-    })
-    setInvItems([emptyItem()]); setInvNotes(""); setInvClientId("")
-    await load(); flash("Invoice saved"); setTab("invoices")
+    const payload = {
+      number: invNumber, date: invDate, dueDate: invDue,
+      clientId: invClientId, notes: invNotes,
+      items: invItems.filter((i) => i.description.trim()),
+    }
+
+    if (editingInvoiceId) {
+      // UPDATE
+      await fetch(`/api/invoices/${editingInvoiceId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...payload, fullEdit: true }),
+      })
+      flash("Invoice updated")
+    } else {
+      // CREATE
+      await fetch("/api/invoices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      flash("Invoice saved")
+    }
+    resetInvoiceForm()
+    await load()
+    setTab("invoices")
   }
 
   const exportPDF = async () => {
@@ -184,16 +257,29 @@ export default function Dashboard() {
 
   const saveBill = async () => {
     if (!billClientId || !billDesc.trim() || !billAmt) return
-    await fetch("/api/bills", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        clientId: billClientId, description: billDesc.trim(),
-        amount: billAmt, date: billDate, dueDate: billDue || null, notes: billNotes,
-      }),
-    })
-    setBillDesc(""); setBillAmt(""); setBillNotes("")
-    await load(); flash("Bill saved"); setTab("bills")
+    const payload = {
+      clientId: billClientId, description: billDesc.trim(),
+      amount: billAmt, date: billDate, dueDate: billDue || null, notes: billNotes,
+    }
+
+    if (editingBillId) {
+      await fetch(`/api/bills/${editingBillId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...payload, fullEdit: true }),
+      })
+      flash("Bill updated")
+    } else {
+      await fetch("/api/bills", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      flash("Bill saved")
+    }
+    resetBillForm()
+    await load()
+    setTab("bills")
   }
 
   const deleteBill = async (id: number) => {
@@ -205,9 +291,9 @@ export default function Dashboard() {
 
   /* ── render ── */
   const tabs = [
-    { key: "invoice", label: "New Invoice" },
+    { key: "invoice", label: editingInvoiceId ? "Edit Invoice" : "New Invoice" },
     { key: "invoices", label: `Invoices (${invoices.length})` },
-    { key: "newbill", label: "New Bill" },
+    { key: "newbill", label: editingBillId ? "Edit Bill" : "New Bill" },
     { key: "bills", label: `Bills (${bills.length})` },
     { key: "clients", label: `Clients (${clients.length})` },
   ] as const
@@ -226,7 +312,11 @@ export default function Dashboard() {
         </div>
         <div className="max-w-7xl mx-auto px-4 flex gap-1 pb-2 overflow-x-auto">
           {tabs.map((t) => (
-            <button key={t.key} onClick={() => setTab(t.key)}
+            <button key={t.key} onClick={() => {
+              if (t.key === "invoice" && editingInvoiceId) resetInvoiceForm()
+              if (t.key === "newbill" && editingBillId) resetBillForm()
+              setTab(t.key)
+            }}
               className={`px-4 py-1.5 rounded text-sm font-medium whitespace-nowrap transition ${
                 tab === t.key ? "bg-gray-900 text-white" : "text-gray-600 hover:bg-gray-100"
               }`}>
@@ -237,11 +327,19 @@ export default function Dashboard() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 pt-6">
-        {/* ─── NEW INVOICE TAB ─── */}
+        {/* ─── NEW / EDIT INVOICE TAB ─── */}
         {tab === "invoice" && (
           <div className="grid lg:grid-cols-2 gap-8">
             {/* form */}
             <div className="space-y-5 no-print">
+              {/* editing banner */}
+              {editingInvoiceId && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 flex items-center justify-between">
+                  <span className="text-sm text-blue-700 font-medium">Editing invoice {invNumber}</span>
+                  <button onClick={() => { resetInvoiceForm(); }} className="text-xs text-blue-600 hover:text-blue-800">Cancel edit</button>
+                </div>
+              )}
+
               {/* client select */}
               <section className="bg-white rounded-lg shadow p-5 space-y-3">
                 <h2 className="font-semibold text-gray-800">Client</h2>
@@ -314,7 +412,7 @@ export default function Dashboard() {
                 <button onClick={async () => { await saveInvoice(); exportPDF() }}
                   disabled={!invClientId}
                   className="flex-1 bg-blue-600 text-white rounded-lg py-3 text-sm font-medium hover:bg-blue-700 transition disabled:opacity-40">
-                  Save &amp; Download
+                  {editingInvoiceId ? "Update & Download" : "Save & Download"}
                 </button>
               </div>
             </div>
@@ -362,6 +460,7 @@ export default function Dashboard() {
                       <span className="font-medium text-sm">
                         {money(inv.items.reduce((s: number, i: any) => s + Number(i.quantity) * Number(i.rate), 0) * 1.14975)}
                       </span>
+                      <button onClick={() => startEditInvoice(inv)} className="text-xs text-blue-600 hover:text-blue-800">Edit</button>
                       <button onClick={() => deleteInvoice(inv.id)} className="text-xs text-red-500 hover:text-red-700">Delete</button>
                     </div>
                   </div>
@@ -371,10 +470,18 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* ─── NEW BILL TAB ─── */}
+        {/* ─── NEW / EDIT BILL TAB ─── */}
         {tab === "newbill" && (
           <div className="max-w-lg">
-            <h2 className="text-xl font-semibold mb-4 text-gray-800">New Bill</h2>
+            <h2 className="text-xl font-semibold mb-4 text-gray-800">
+              {editingBillId ? "Edit Bill" : "New Bill"}
+            </h2>
+            {editingBillId && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 flex items-center justify-between mb-4">
+                <span className="text-sm text-blue-700 font-medium">Editing bill</span>
+                <button onClick={resetBillForm} className="text-xs text-blue-600 hover:text-blue-800">Cancel edit</button>
+              </div>
+            )}
             <div className="bg-white rounded-lg shadow p-5 space-y-4">
               <select value={billClientId} onChange={(e) => setBillClientId(Number(e.target.value) || "")}
                 className="w-full border rounded px-3 py-2 text-sm">
@@ -405,7 +512,7 @@ export default function Dashboard() {
                 className="w-full border rounded px-3 py-2 text-sm" />
               <button onClick={saveBill} disabled={!billClientId || !billDesc.trim() || !billAmt}
                 className="w-full bg-blue-600 text-white rounded-lg py-3 text-sm font-medium hover:bg-blue-700 transition disabled:opacity-40">
-                Save Bill
+                {editingBillId ? "Update Bill" : "Save Bill"}
               </button>
             </div>
           </div>
@@ -438,6 +545,7 @@ export default function Dashboard() {
                     </div>
                     <div className="flex items-center gap-4">
                       <span className="font-medium text-sm">{money(Number(b.amount))}</span>
+                      <button onClick={() => startEditBill(b)} className="text-xs text-blue-600 hover:text-blue-800">Edit</button>
                       <button onClick={() => deleteBill(b.id)} className="text-xs text-red-500 hover:text-red-700">Delete</button>
                     </div>
                   </div>

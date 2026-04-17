@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions, isAdmin } from "@/lib/auth"
 import { NextResponse } from "next/server"
 
-// PATCH /api/invoices/[id]  — update status / proof
+// PATCH /api/invoices/[id]  — update status/proof OR full edit (admin)
 export async function PATCH(
   req: Request,
   { params }: { params: { id: string } }
@@ -15,6 +15,30 @@ export async function PATCH(
   const body = await req.json()
   const id = parseInt(params.id, 10)
 
+  // Full edit (admin only)
+  if (body.fullEdit && isAdmin(session.user.email)) {
+    const { number, date, dueDate, clientId, notes, items } = body
+
+    await sql`
+      UPDATE invoices
+      SET number = ${number}, date = ${date}, due_date = ${dueDate},
+          client_id = ${clientId}, notes = ${notes || ""}
+      WHERE id = ${id}
+    `
+
+    // replace all line items
+    await sql`DELETE FROM invoice_items WHERE invoice_id = ${id}`
+    for (const item of items) {
+      await sql`
+        INSERT INTO invoice_items (invoice_id, description, quantity, rate)
+        VALUES (${id}, ${item.description}, ${item.quantity}, ${item.rate})
+      `
+    }
+
+    return NextResponse.json({ ok: true })
+  }
+
+  // Partial updates (status / proof)
   if (body.status) {
     await sql`UPDATE invoices SET status = ${body.status} WHERE id = ${id}`
   }
