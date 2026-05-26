@@ -12,3 +12,14 @@ export const COMPANY = {
   gst: "827352337RT0001",
   qst: "1219843247TQ0001",
 }
+
+export const DOGS = ["Blu", "Quinta", "Milo", "Moose", "Dakota", "Luke", "Bobby", "Sam"] as const
+
+export function boardingDaysInMonth(year: number, month: number) {
+  return new Date(year, month, 0).getDate()
+}
+
+export function boardingRate(year: number, month: number) {
+  if (year > 2026 || (year === 2026 && month >= 4)) return 10
+  return 25
+}

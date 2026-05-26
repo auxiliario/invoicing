@@ -4,7 +4,7 @@ import { useSession, signOut } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { useState, useEffect, useRef, useCallback } from "react"
 import InvoicePreview from "@/app/components/invoice-preview"
-import { COMPANY } from "@/lib/db"
+import { COMPANY, DOGS, boardingDaysInMonth, boardingRate } from "@/lib/db"
 
 /* ── types ── */
 interface Client { id: number; name: string; address: string; email: string; aliases: string[] }
@@ -46,6 +46,10 @@ export default function Dashboard() {
   const [invItems, setInvItems] = useState<LineItem[]>([emptyItem()])
   const [invNotes, setInvNotes] = useState("")
   const [editingInvoiceId, setEditingInvoiceId] = useState<number | null>(null)
+
+  /* boarding quick-add */
+  const [boardingMonth, setBoardingMonth] = useState(() => new Date().toISOString().slice(0, 7))
+  const [selectedDogs, setSelectedDogs] = useState<string[]>([])
 
   /* client form */
   const [cName, setCName] = useState("")
@@ -118,6 +122,27 @@ export default function Dashboard() {
 
   const updateItem = (id: string, field: keyof LineItem, value: string | number) =>
     setInvItems((prev) => prev.map((it) => (it.id === id ? { ...it, [field]: value } : it)))
+
+  const addBoardingLines = () => {
+    if (!boardingMonth || selectedDogs.length === 0) return
+    const [yearStr, monthStr] = boardingMonth.split("-")
+    const year = parseInt(yearStr, 10)
+    const month = parseInt(monthStr, 10)
+    const days = boardingDaysInMonth(year, month)
+    const rate = boardingRate(year, month)
+    const monthLabel = new Date(year, month - 1, 1).toLocaleString("en-CA", { month: "long", year: "numeric" })
+    const newLines: LineItem[] = selectedDogs.map((dog) => ({
+      id: uid(),
+      description: `Boarding — ${monthLabel} — ${dog}`,
+      quantity: days,
+      rate,
+    }))
+    setInvItems((prev) => {
+      const onlyEmptyStarter = prev.length === 1 && !prev[0].description && prev[0].rate === 0
+      return onlyEmptyStarter ? newLines : [...prev, ...newLines]
+    })
+    setSelectedDogs([])
+  }
 
   const selectedClient = clients.find((c) => c.id === invClientId)
 
@@ -372,6 +397,42 @@ export default function Dashboard() {
                       className="w-full border rounded px-3 py-2 text-sm" />
                   </div>
                 </div>
+              </section>
+
+              {/* boarding quick-add */}
+              <section className="bg-white rounded-lg shadow p-5 space-y-3">
+                <div className="flex items-baseline justify-between">
+                  <h2 className="font-semibold text-gray-800">Boarding</h2>
+                  {boardingMonth && (() => {
+                    const [y, m] = boardingMonth.split("-").map(Number)
+                    if (!y || !m) return null
+                    return (
+                      <span className="text-xs text-gray-500">
+                        {boardingDaysInMonth(y, m)} days × ${boardingRate(y, m)}/day
+                      </span>
+                    )
+                  })()}
+                </div>
+                <input type="month" value={boardingMonth} onChange={(e) => setBoardingMonth(e.target.value)}
+                  className="border rounded px-3 py-2 text-sm" />
+                <div className="flex flex-wrap gap-2">
+                  {DOGS.map((dog) => {
+                    const checked = selectedDogs.includes(dog)
+                    return (
+                      <label key={dog} className={`px-3 py-1.5 rounded-full text-sm cursor-pointer border transition ${
+                        checked ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-700 border-gray-300 hover:border-blue-400"
+                      }`}>
+                        <input type="checkbox" className="hidden" checked={checked}
+                          onChange={() => setSelectedDogs((p) => checked ? p.filter((d) => d !== dog) : [...p, dog])} />
+                        {dog}
+                      </label>
+                    )
+                  })}
+                </div>
+                <button onClick={addBoardingLines} disabled={!boardingMonth || selectedDogs.length === 0}
+                  className="bg-gray-900 text-white rounded px-4 py-2 text-sm font-medium hover:bg-gray-800 disabled:opacity-40">
+                  Add boarding lines
+                </button>
               </section>
 
               {/* line items */}
